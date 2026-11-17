@@ -1,6 +1,6 @@
 FROM golang:1.22-alpine as builder
 wORKDIR /app
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build \
@@ -16,6 +16,6 @@ RUN apk add --no-cache ca-certificates\
 COPY --from=builder --chown=appuser:appgroup /app/orders-api .
 USER appuser
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3s \
-    CMD wget -q0- http://127.0.0.1:8002/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8002/health || exit 1
 CMD ["./orders-api"]
