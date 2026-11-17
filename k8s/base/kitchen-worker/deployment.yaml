@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kitchen-worker
+  labels:
+    app: kitchen-worker
+    tier: worker
+  annotations:
+    # MULTI-REPLICA SAFETY NOTE:
+    # kitchen-worker consumes jobs via Redis leftPop ("orders:pending" list).
+    # Redis BLPOP / LPOP operations are atomic: each order is delivered to
+    # exactly one worker. Two workers can safely consume jobs concurrently.
+    # Processing updates orders status to 'cooking' and then 'ready' for each ID.
+    #
+    # HEALTH PROBE NOTE:
+    # The image contains only a JRE (no HTTP web server, no redis-cli).
+    # Checking /proc/1/status only verifies OS process existence, not that the JVM
+    # is responsive or that the Spring scheduler is running.
+    # The application HeartbeatService writes a local heartbeat timestamp file
+    # to /tmp/heartbeat every 10 seconds.
+    # Readiness probe verifies the heartbeat file has been initialized.
+    # Liveness probe verifies the heartbeat timestamp is no older than 30 seconds.
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kitchen-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: kitchen-worker
+        tier: worker
+    spec:
+      imagePullSecrets:
+        - name: ecr-registry
+      containers:
+        - name: kitchen-worker
+          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba/kitchen-worker:c642a34
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: REDIS_PORT
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "test -f /tmp/heartbeat"
+            periodSeconds: 10
+            failureThreshold: 30
+            timeoutSeconds: 5        
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "test -f /tmp/heartbeat"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "[ $(($(date +%s) - $(date -r /tmp/heartbeat +%s))) -lt 30 ]"
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"

@@ -1,0 +1,17 @@
+# Production resources — stats-api
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stats-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: stats-api
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "384Mi"
+            limits:
+              cpu: "600m"
+              memory: "768Mi"

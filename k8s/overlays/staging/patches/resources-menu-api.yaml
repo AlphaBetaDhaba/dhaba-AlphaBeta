@@ -1,0 +1,17 @@
+# Staging resource patch — menu-api (lighter than production)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: menu-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: menu-api
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "96Mi"
+            limits:
+              cpu: "150m"
+              memory: "192Mi"

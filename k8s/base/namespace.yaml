@@ -1,0 +1,5 @@
+# Namespace is intentionally omitted from base; each overlay sets its own
+# namespace via the `namespace:` field in its kustomization.yaml.
+# To create namespaces before applying overlays, run:
+#   kubectl create namespace dhaba-staging
+#   kubectl create namespace dhaba-production

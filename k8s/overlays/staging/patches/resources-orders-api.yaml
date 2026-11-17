@@ -1,0 +1,17 @@
+# Staging resource patch — orders-api
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: orders-api
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "48Mi"
+            limits:
+              cpu: "150m"
+              memory: "96Mi"

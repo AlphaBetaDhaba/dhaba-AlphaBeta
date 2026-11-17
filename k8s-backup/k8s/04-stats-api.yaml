@@ -1,0 +1,135 @@
+# =============================================================================
+# stats-api — PHP / Laravel + Apache  (port 80 internally → exposed as 8003)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stats-api
+  namespace: dhaba
+  labels:
+    app: stats-api
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: stats-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: stats-api
+        tier: backend
+    spec:
+      containers:
+        - name: stats-api
+          image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/stats-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+          env:
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: APP_NAME
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: APP_ENV
+            - name: APP_DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: APP_DEBUG
+            - name: DB_CONNECTION
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_CONNECTION
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_PORT
+            - name: DB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_DATABASE
+            - name: DB_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_USERNAME
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: REDIS_PORT
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: APP_KEY
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: DB_HOST
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: REDIS_HOST
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      restartPolicy: Always
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stats-api
+  namespace: dhaba
+  labels:
+    app: stats-api
+spec:
+  selector:
+    app: stats-api
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8003       # external-facing port matches docker-compose convention
+      targetPort: 80
+  type: ClusterIP

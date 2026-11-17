@@ -1,0 +1,60 @@
+# =============================================================================
+# Dhaba — Kubernetes Ingress  (optional — use instead of web LoadBalancer)
+# =============================================================================
+# Requires an Ingress Controller installed in the cluster
+# (e.g. nginx-ingress, AWS ALB Ingress Controller)
+#
+# AWS ALB example:  add annotation  kubernetes.io/ingress.class: alb
+# Standard nginx:   add annotation  kubernetes.io/ingress.class: nginx
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dhaba-ingress
+  namespace: dhaba
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    # For AWS ALB, replace the line above with:
+    # kubernetes.io/ingress.class: "alb"
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+    # alb.ingress.kubernetes.io/target-type: ip
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  rules:
+    - http:
+        paths:
+          # React frontend — catch-all
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000
+
+          # API routes proxied through Ingress (alternative to Nginx inside web)
+          - path: /menu
+            pathType: Prefix
+            backend:
+              service:
+                name: menu-api
+                port:
+                  number: 8001
+
+          - path: /orders
+            pathType: Prefix
+            backend:
+              service:
+                name: orders-api
+                port:
+                  number: 8002
+
+          - path: /stats
+            pathType: Prefix
+            backend:
+              service:
+                name: stats-api
+                port:
+                  number: 8003

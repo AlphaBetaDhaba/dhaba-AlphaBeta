@@ -1,0 +1,80 @@
+# =============================================================================
+# kitchen-worker — Java / Spring Boot  (no HTTP port — background worker)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kitchen-worker
+  namespace: dhaba
+  labels:
+    app: kitchen-worker
+    tier: worker
+spec:
+  replicas: 1          # Only 1 replica — single consumer of the Redis queue
+  selector:
+    matchLabels:
+      app: kitchen-worker
+  strategy:
+    type: Recreate     # Avoid two workers racing on the same queue
+  template:
+    metadata:
+      labels:
+        app: kitchen-worker
+        tier: worker
+    spec:
+      containers:
+        - name: kitchen-worker
+          image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/kitchen-worker:latest
+          imagePullPolicy: Always
+          env:
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_USER
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: REDIS_PORT
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: DB_HOST
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: REDIS_HOST
+          # No HTTP liveness — use Redis heartbeat key as a probe instead
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "redis-cli -h ${REDIS_HOST} -p ${REDIS_PORT} exists kitchen:heartbeat | grep -q 1"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+      restartPolicy: Always
+
+# No Service needed — kitchen-worker has no inbound HTTP traffic

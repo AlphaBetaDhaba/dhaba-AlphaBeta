@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dhaba-staging
+
+resources:
+  - ../../base
+
+patches:
+  # Ingress: set staging hostname
+  - path: patches/ingress-host.yaml
+
+  # Staging ConfigMap: APP_ENV=staging, APP_DEBUG=true
+  - path: patches/configmap.yaml
+
+  # Resource limits (lighter for staging)
+  - path: patches/resources-menu-api.yaml
+  - path: patches/resources-orders-api.yaml
+  - path: patches/resources-kitchen-worker.yaml
+  - path: patches/resources-stats-api.yaml
+  - path: patches/resources-web.yaml
+
+  # PDB: minAvailable=1
+  - path: patches/pdb-menu-api.yaml
+  - path: patches/pdb-orders-api.yaml
+  - path: patches/pdb-kitchen-worker.yaml
+  - path: patches/pdb-stats-api.yaml
+  - path: patches/pdb-web.yaml

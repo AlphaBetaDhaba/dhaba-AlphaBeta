@@ -1,0 +1,256 @@
+{
+  "_comment": "ECS Task Definitions for all Dhaba services. Replace <AWS_ACCOUNT_ID>, <AWS_REGION>, and <IMAGE_TAG> before deploying.",
+
+  "menu-api": {
+    "family": "dhaba-menu-api",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/dhabaTaskRole",
+    "containerDefinitions": [
+      {
+        "name": "menu-api",
+        "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/menu-api:<IMAGE_TAG>",
+        "essential": true,
+        "portMappings": [
+          {
+            "containerPort": 8001,
+            "hostPort": 8001,
+            "protocol": "tcp"
+          }
+        ],
+        "environment": [
+          { "name": "DB_PORT", "value": "5432" },
+          { "name": "DB_NAME", "value": "dhaba" },
+          { "name": "DB_USER", "value": "dhaba" }
+        ],
+        "secrets": [
+          {
+            "name": "DB_HOST",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_HOST"
+          },
+          {
+            "name": "DB_PASSWORD",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_PASSWORD"
+          }
+        ],
+        "healthCheck": {
+          "command": [
+            "CMD-SHELL",
+            "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)\" || exit 1"
+          ],
+          "interval": 10,
+          "timeout": 5,
+          "retries": 5,
+          "startPeriod": 30
+        },
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/dhaba/menu-api",
+            "awslogs-region": "<AWS_REGION>",
+            "awslogs-stream-prefix": "ecs"
+          }
+        }
+      }
+    ]
+  },
+
+  "orders-api": {
+    "family": "dhaba-orders-api",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/dhabaTaskRole",
+    "containerDefinitions": [
+      {
+        "name": "orders-api",
+        "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/orders-api:<IMAGE_TAG>",
+        "essential": true,
+        "portMappings": [
+          {
+            "containerPort": 8002,
+            "hostPort": 8002,
+            "protocol": "tcp"
+          }
+        ],
+        "environment": [
+          { "name": "DB_NAME", "value": "dhaba" },
+          { "name": "DB_USER", "value": "dhaba" },
+          { "name": "PORT", "value": "8002" }
+        ],
+        "secrets": [
+          {
+            "name": "DB_HOST",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_HOST"
+          },
+          {
+            "name": "DB_PASSWORD",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_PASSWORD"
+          },
+          {
+            "name": "REDIS_ADDR",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/REDIS_ADDR"
+          }
+        ],
+        "healthCheck": {
+          "command": [
+            "CMD-SHELL",
+            "wget -qO- http://127.0.0.1:8002/health || exit 1"
+          ],
+          "interval": 30,
+          "timeout": 5,
+          "retries": 3,
+          "startPeriod": 10
+        },
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/dhaba/orders-api",
+            "awslogs-region": "<AWS_REGION>",
+            "awslogs-stream-prefix": "ecs"
+          }
+        }
+      }
+    ]
+  },
+
+  "kitchen-worker": {
+    "family": "dhaba-kitchen-worker",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "512",
+    "memory": "1024",
+    "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/dhabaTaskRole",
+    "containerDefinitions": [
+      {
+        "name": "kitchen-worker",
+        "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/kitchen-worker:<IMAGE_TAG>",
+        "essential": true,
+        "environment": [
+          { "name": "DB_NAME", "value": "dhaba" },
+          { "name": "DB_USER", "value": "dhaba" },
+          { "name": "REDIS_PORT", "value": "6379" }
+        ],
+        "secrets": [
+          {
+            "name": "DB_HOST",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_HOST"
+          },
+          {
+            "name": "DB_PASSWORD",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_PASSWORD"
+          },
+          {
+            "name": "REDIS_HOST",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/REDIS_HOST"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/dhaba/kitchen-worker",
+            "awslogs-region": "<AWS_REGION>",
+            "awslogs-stream-prefix": "ecs"
+          }
+        }
+      }
+    ]
+  },
+
+  "stats-api": {
+    "family": "dhaba-stats-api",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "512",
+    "memory": "1024",
+    "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/dhabaTaskRole",
+    "containerDefinitions": [
+      {
+        "name": "stats-api",
+        "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/stats-api:<IMAGE_TAG>",
+        "essential": true,
+        "portMappings": [
+          {
+            "containerPort": 80,
+            "hostPort": 80,
+            "protocol": "tcp"
+          }
+        ],
+        "environment": [
+          { "name": "APP_NAME",   "value": "stats-api" },
+          { "name": "APP_ENV",    "value": "production" },
+          { "name": "APP_DEBUG",  "value": "false" },
+          { "name": "DB_CONNECTION", "value": "pgsql" },
+          { "name": "DB_PORT",    "value": "5432" },
+          { "name": "DB_DATABASE","value": "dhaba" },
+          { "name": "DB_USERNAME","value": "dhaba" },
+          { "name": "REDIS_PORT", "value": "6379" }
+        ],
+        "secrets": [
+          {
+            "name": "APP_KEY",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/APP_KEY"
+          },
+          {
+            "name": "DB_HOST",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_HOST"
+          },
+          {
+            "name": "DB_PASSWORD",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/DB_PASSWORD"
+          },
+          {
+            "name": "REDIS_HOST",
+            "valueFrom": "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:parameter/dhaba/REDIS_HOST"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/dhaba/stats-api",
+            "awslogs-region": "<AWS_REGION>",
+            "awslogs-stream-prefix": "ecs"
+          }
+        }
+      }
+    ]
+  },
+
+  "web": {
+    "family": "dhaba-web",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE"],
+    "cpu": "256",
+    "memory": "512",
+    "executionRoleArn": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ecsTaskExecutionRole",
+    "containerDefinitions": [
+      {
+        "name": "web",
+        "image": "<AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/dhaba/web:<IMAGE_TAG>",
+        "essential": true,
+        "portMappings": [
+          {
+            "containerPort": 80,
+            "hostPort": 80,
+            "protocol": "tcp"
+          }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/dhaba/web",
+            "awslogs-region": "<AWS_REGION>",
+            "awslogs-stream-prefix": "ecs"
+          }
+        }
+      }
+    ]
+  }
+}

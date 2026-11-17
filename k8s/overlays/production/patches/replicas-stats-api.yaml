@@ -1,0 +1,7 @@
+# Production: 2 replicas — stats-api
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stats-api
+spec:
+  replicas: 2

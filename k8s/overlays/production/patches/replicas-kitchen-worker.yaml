@@ -1,0 +1,8 @@
+# Production: 2 replicas — kitchen-worker
+# Redis LPOP is atomic; two workers safely consume different orders concurrently.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kitchen-worker
+spec:
+  replicas: 2
