@@ -28,7 +28,7 @@ public class OrderProcessor {
             return;
         }
 
-        String id = value.trim();
+        int id = Integer.parseInt(value.trim());
         log.info("Processing order " + id);
 
         try {
