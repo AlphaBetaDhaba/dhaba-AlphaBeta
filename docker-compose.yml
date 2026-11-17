@@ -83,7 +83,7 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: dhaba
+      DB_NAME: dhabagit a
       DB_USER: dhaba
       DB_PASSWORD: ${DB_PASSWORD:-dhaba}
       REDIS_HOST: redis
