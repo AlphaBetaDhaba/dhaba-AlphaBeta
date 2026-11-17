@@ -1,0 +1,26 @@
+# Python
+menu-api/.venv/
+menu-api/__pycache__/
+menu-api/*.pyc
+menu-api/.pytest_cache/
+
+# Go
+orders-api/orders-api
+
+# Java / Maven
+kitchen-worker/target/
+
+# PHP / Laravel
+stats-api/vendor/
+stats-api/.env
+stats-api/bootstrap/cache/*.php
+stats-api/storage/logs/
+stats-api/storage/framework/
+
+# Node / Vite
+web/node_modules/
+web/dist/
+
+# OS
+.DS_Store
+Thumbs.db
