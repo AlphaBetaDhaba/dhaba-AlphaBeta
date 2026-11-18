@@ -1,0 +1,137 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dhaba
+      POSTGRES_USER: dhaba
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-dhaba}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dhaba -d dhaba"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  menu-api:
+    build:
+      context: ./menu-api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: dhaba
+      DB_USER: dhaba
+      DB_PASSWORD: ${DB_PASSWORD:-dhaba}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  orders-api:
+    build:
+      context: ./orders-api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: dhaba
+      DB_USER: dhaba
+      DB_PASSWORD: ${DB_PASSWORD:-dhaba}
+      REDIS_ADDR: redis:6379
+      PORT: 8002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
+  kitchen-worker:
+    build:
+      context: ./kitchen-worker
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: dhabagit a
+      DB_USER: dhaba
+      DB_PASSWORD: ${DB_PASSWORD:-dhaba}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  stats-api:
+    build:
+      context: ./stats-api
+    environment:
+      APP_NAME: stats-api
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: ${APP_KEY:-}
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: dhaba
+      DB_USERNAME: dhaba
+      DB_PASSWORD: ${DB_PASSWORD:-dhaba}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8003:80"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    depends_on:
+      menu-api:
+        condition: service_healthy
+      orders-api:
+        condition: service_started
+    ports:
+      - "3000:80"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

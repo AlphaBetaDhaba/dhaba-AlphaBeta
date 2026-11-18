@@ -1,0 +1,12 @@
+# Staging PDB — kitchen-worker: minAvailable=1
+# NOTE: In staging with 1 replica, minAvailable=1 will prevent voluntary pod evictions
+# during node drain operations until the workload is scaled up or the PDB is removed.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kitchen-worker-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: kitchen-worker

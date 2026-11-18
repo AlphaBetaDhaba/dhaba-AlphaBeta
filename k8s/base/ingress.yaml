@@ -1,0 +1,91 @@
+# =============================================================================
+# Ingress Configuration
+# =============================================================================
+# Two separate Ingress resources are used to avoid a global rewrite-target
+# annotation from unintentionally affecting web/frontend static asset requests.
+#
+# 1. dhaba-ingress-api: handles /api/* and direct API routes with rewrite-target
+#    - /api/menu   → rewritten to /menu   → menu-api:8001
+#    - /api/orders → rewritten to /orders → orders-api:8002
+#    - /api/stats  → rewritten to /stats  → stats-api:80
+#    - /menu       → forwarded to /menu   → menu-api:8001
+#    - /orders     → forwarded to /orders → orders-api:8002
+#    - /stats      → forwarded to /stats  → stats-api:80
+#
+# 2. dhaba-ingress-web: handles / for the React web frontend (no rewrite)
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dhaba-ingress-api
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  ingressClassName: nginx
+  rules:
+    # Host is set per overlay via patches (e.g. staging.TEAM.test / TEAM.test)
+    - http:
+        paths:
+          - path: /api/(menu.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: menu-api
+                port:
+                  number: 8001
+          - path: /api/(orders.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-api
+                port:
+                  number: 8002
+          - path: /api/(stats.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: stats-api
+                port:
+                  number: 80
+          - path: /(menu.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: menu-api
+                port:
+                  number: 8001
+          - path: /(orders.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-api
+                port:
+                  number: 8002
+          - path: /(stats.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: stats-api
+                port:
+                  number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dhaba-ingress-web
+  # Deliberately NO rewrite-target annotation: preserves clean paths for web/SPA assets
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80

@@ -1,0 +1,17 @@
+# Staging resource patch — kitchen-worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kitchen-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: kitchen-worker
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "250m"
+              memory: "512Mi"

@@ -1,0 +1,17 @@
+# Production resources — menu-api
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: menu-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: menu-api
+          resources:
+            requests:
+              cpu: "150m"
+              memory: "192Mi"
+            limits:
+              cpu: "400m"
+              memory: "384Mi"

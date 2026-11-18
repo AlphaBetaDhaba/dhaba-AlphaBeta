@@ -1,0 +1,73 @@
+# Ingress host patch — staging
+# Applies staging hostname to both Ingress resources.
+# Replace TEAM with your actual team identifier before applying.
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dhaba-ingress-api
+spec:
+  rules:
+    - host: staging.dhaba.test
+      http:
+        paths:
+          - path: /api/(menu.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: menu-api
+                port:
+                  number: 8001
+          - path: /api/(orders.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-api
+                port:
+                  number: 8002
+          - path: /api/(stats.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: stats-api
+                port:
+                  number: 80
+          - path: /(menu.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: menu-api
+                port:
+                  number: 8001
+          - path: /(orders.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: orders-api
+                port:
+                  number: 8002
+          - path: /(stats.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: stats-api
+                port:
+                  number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dhaba-ingress-web
+spec:
+  rules:
+    - host: staging.dhaba.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80

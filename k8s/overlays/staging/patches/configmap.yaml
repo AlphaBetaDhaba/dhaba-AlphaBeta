@@ -1,0 +1,8 @@
+# Staging ConfigMap patch: sets APP_ENV to staging and APP_DEBUG to true
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dhaba-config
+data:
+  APP_ENV: "staging"
+  APP_DEBUG: "true"

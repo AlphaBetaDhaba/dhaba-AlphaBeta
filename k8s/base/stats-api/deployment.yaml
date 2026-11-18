@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stats-api
+  labels:
+    app: stats-api
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stats-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: stats-api
+        tier: backend
+    spec:
+      imagePullSecrets:
+        - name: ecr-registry
+      containers:
+        - name: stats-api
+          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba/stats-api:f6ce59b
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          env:
+            # Laravel-specific non-sensitive config
+            - name: APP_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: APP_NAME
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: APP_ENV
+            - name: APP_DEBUG
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: APP_DEBUG
+            - name: DB_CONNECTION
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_CONNECTION
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_PORT
+            # Laravel uses DB_DATABASE and DB_USERNAME (not DB_NAME / DB_USER)
+            - name: DB_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_DATABASE
+            - name: DB_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: DB_USERNAME
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: dhaba-config
+                  key: REDIS_PORT
+            # Sensitive
+            - name: APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: APP_KEY
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dhaba-secret
+                  key: DB_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

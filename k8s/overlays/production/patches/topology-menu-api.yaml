@@ -1,0 +1,19 @@
+# Production topology spread — menu-api
+# Spreads replicas across different nodes (kubernetes.io/hostname).
+# IMPORTANT: maxSkew=1 with DoNotSchedule means if the cluster has only 1 node,
+# a second pod will be PENDING. This is intentional for production.
+# Always test on a multi-node cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: menu-api
+spec:
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: menu-api
