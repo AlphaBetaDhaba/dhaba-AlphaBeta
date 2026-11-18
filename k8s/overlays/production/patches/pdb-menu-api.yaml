@@ -1,0 +1,10 @@
+# Production PDB — menu-api: minAvailable=1 ensures at least one pod is live
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: menu-api-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: menu-api

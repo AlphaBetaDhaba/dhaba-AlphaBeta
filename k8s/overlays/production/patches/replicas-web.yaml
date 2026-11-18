@@ -1,0 +1,7 @@
+# Production: 2 replicas — web
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2

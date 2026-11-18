@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: dhaba-production
+
+resources:
+  - ../../base
+
+patches:
+  # Ingress: set production hostname
+  - path: patches/ingress-host.yaml
+
+  # Replica counts (≥2 for every stateless service in production)
+  - path: patches/replicas-menu-api.yaml
+  - path: patches/replicas-orders-api.yaml
+  - path: patches/replicas-kitchen-worker.yaml
+  - path: patches/replicas-stats-api.yaml
+  - path: patches/replicas-web.yaml
+
+  # Higher resource requests/limits for production
+  - path: patches/resources-menu-api.yaml
+  - path: patches/resources-orders-api.yaml
+  - path: patches/resources-kitchen-worker.yaml
+  - path: patches/resources-stats-api.yaml
+  - path: patches/resources-web.yaml
+
+  # Topology spread constraints (hostname spread across nodes)
+  # NOTE: requires a multi-node cluster. Single-node Minikube will schedule
+  # all pods on the one node; the constraint is WhenScalingOut so it still
+  # deploys. Test on a multi-node cluster for real spreading.
+  - path: patches/topology-menu-api.yaml
+  - path: patches/topology-orders-api.yaml
+  - path: patches/topology-kitchen-worker.yaml
+  - path: patches/topology-stats-api.yaml
+  - path: patches/topology-web.yaml
+
+  # PDB: minAvailable=1 to prevent full drain during maintenance
+  - path: patches/pdb-menu-api.yaml
+  - path: patches/pdb-orders-api.yaml
+  - path: patches/pdb-kitchen-worker.yaml
+  - path: patches/pdb-stats-api.yaml
+  - path: patches/pdb-web.yaml

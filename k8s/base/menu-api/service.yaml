@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: menu-api
+  labels:
+    app: menu-api
+spec:
+  type: ClusterIP
+  selector:
+    app: menu-api
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP
