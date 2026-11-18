@@ -1,11 +1,13 @@
 FROM php:8.2-apache-bookworm AS Builder
 WORKDIR /var/www/html
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    libpq-dev \
-    libzip-dev \
-    zip \
-    unzip \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        git \
+        libpq-dev \
+        libzip-dev \
+        zip \
+        unzip \
     && docker-php-ext-install pdo_pgsql bcmath zip \
     && pecl channel-update pecl.php.net \
     && pecl install redis-6.1.0 \
@@ -26,11 +28,13 @@ RUN composer install \
 
 FROM php:8.2-apache-bookworm
 WORKDIR /var/www/html
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    libzip4 \
-    libpq-dev \
-    libzip-dev \
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        libpq5 \
+        libzip4 \
+        libpq-dev \
+        libzip-dev \
     && docker-php-ext-install pdo_pgsql bcmath zip \
     && pecl channel-update pecl.php.net \
     && pecl install redis-6.1.0 \

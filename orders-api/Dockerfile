@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine as builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -8,7 +8,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w" \
     -o orders-api .
 
-FROM alpine:3.20
+FROM alpine:3.23
 WORKDIR /app
 RUN apk add --no-cache ca-certificates\
     && addgroup -S appuser \

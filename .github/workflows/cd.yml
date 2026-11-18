@@ -52,7 +52,7 @@ jobs:
 
       # Scan images before deployment
       - name: Scan Images with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           image-ref: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/dhaba/menu-api:${{ github.sha }}
           format: table
