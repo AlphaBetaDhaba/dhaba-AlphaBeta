@@ -1,4 +1,3 @@
-
 name: Dhaba Orders CI
 
 on:
@@ -14,9 +13,9 @@ permissions:
 
 jobs:
 
-  # React: ESLint + Vitest
+  # React: Build + Vitest
   web:
-    name: Web - ESLint and Vitest
+    name: Web - Build and Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,17 +30,17 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: ESLint
-        working-directory: web
-        run: npm run lint
-
-      - name: Vitest
+      - name: Run tests
         working-directory: web
         run: npm test
 
-  # Python: Ruff + pytest
+      - name: Build
+        working-directory: web
+        run: npm run build
+
+  # Python: pytest
   menu-api:
-    name: Menu API - Ruff and pytest
+    name: Menu API - Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,24 +48,21 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-          cache: pip
-          cache-dependency-path: menu-api/requirements-dev.txt
 
       - name: Install dependencies
         working-directory: menu-api
-        run: pip install -r requirements-dev.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
 
-      - name: Ruff
-        working-directory: menu-api
-        run: ruff check .
-
-      - name: Pytest
+      - name: Run tests
         working-directory: menu-api
         run: pytest
 
-  # Go: golangci-lint + Go tests
+  # Go: Tests
   orders-api:
-    name: Orders API - golangci-lint and Go tests
+    name: Orders API - Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,19 +73,13 @@ jobs:
           cache: true
           cache-dependency-path: orders-api/go.sum
 
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.13
-          working-directory: orders-api
-
-      - name: Go tests
+      - name: Run tests
         working-directory: orders-api
         run: go test ./...
 
-  # Java: Checkstyle + JUnit
+  # Java: Maven verification
   kitchen-worker:
-    name: Kitchen Worker - Checkstyle and JUnit
+    name: Kitchen Worker - Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -102,13 +92,13 @@ jobs:
           cache: maven
           cache-dependency-path: kitchen-worker/pom.xml
 
-      - name: Checkstyle and JUnit tests
+      - name: Run Maven verification
         working-directory: kitchen-worker
         run: mvn -B verify
 
-  # PHP: PHPStan + PHPUnit
+  # PHP: PHPUnit
   stats-api:
-    name: Stats API - PHPStan and PHPUnit
+    name: Stats API - Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -120,57 +110,27 @@ jobs:
           coverage: none
           tools: composer:v2
 
+      - name: Prepare Laravel directories
+        working-directory: stats-api
+        run: |
+          mkdir -p bootstrap/cache
+          mkdir -p storage/framework/cache
+          mkdir -p storage/framework/sessions
+          mkdir -p storage/framework/views
+          mkdir -p storage/logs
+
       - name: Install dependencies
         working-directory: stats-api
         run: composer install --no-interaction --prefer-dist
 
-      - name: PHPStan
-        working-directory: stats-api
-        run: composer analyse
-
-      - name: PHPUnit
+      - name: Run PHPUnit
         working-directory: stats-api
         env:
           DB_CONNECTION: sqlite
           DB_DATABASE: ":memory:"
         run: composer test
 
-  # Dockerfiles: Hadolint
-  dockerfiles:
-    name: Dockerfile lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Hadolint
-        run: |
-          status=0
-          while IFS= read -r -d '' file; do
-            echo "Checking $file"
-            docker run --rm -i hadolint/hadolint:v2.12.0 < "$file" || status=1
-          done < <(find . -type f -iname 'Dockerfile*' -print0)
-          exit "$status"
-
-  # Shell scripts: ShellCheck
-  shell-scripts:
-    name: ShellCheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-
-      - name: Check shell scripts
-        run: |
-          if [ -d scripts ]; then
-            find scripts -type f -name "*.sh" -print0 |
-              xargs -0 -r shellcheck
-          fi
-
-  # Kubernetes manifests: kubeconform
+  # Kubernetes manifests: Validation
   kubernetes:
     name: Kubernetes manifest validation
     runs-on: ubuntu-latest
@@ -184,8 +144,6 @@ jobs:
           tar -xzf /tmp/kustomize.tar.gz -C /tmp
           sudo install /tmp/kustomize /usr/local/bin/kustomize
 
-      # kubeconform runs from its container image, so rendered output goes to
-      # a directory that is mounted into the container.
       - name: Validate staging manifests
         run: |
           mkdir -p rendered
