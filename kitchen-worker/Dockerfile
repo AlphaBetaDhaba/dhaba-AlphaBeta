@@ -1,15 +1,19 @@
+
 FROM maven:3.9-eclipse-temurin-21 AS builder
 
 WORKDIR /app
 
+# Copy Maven configuration first for better layer caching
 COPY pom.xml .
-RUN mvn dependency:go-offline
 
+# Resolve dependencies and refresh cached failures
+RUN mvn -B -U dependency:go-offline
+
+# Copy application source
 COPY src ./src
 
-RUN mvn -B clean package -DskipTests
-
-
+# Build the application
+RUN mvn -B -U clean package -DskipTests
 
 FROM eclipse-temurin:21-jre-jammy
 
@@ -25,4 +29,6 @@ RUN chown appuser:appuser /app/app.jar
 
 USER appuser
 
-CMD ["java", "-jar", "/app/app.jar"]
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

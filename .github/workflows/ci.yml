@@ -1,51 +1,203 @@
+
 name: Dhaba Orders CI
 
 on:
-  push:
-    branches:
-      - main
-      - develop
-
   pull_request:
     branches:
       - main
-      - develop
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
-  build-and-scan:
-    name: Build and Scan Docker Images
+
+  # React: ESLint + Vitest
+  web:
+    name: Web - ESLint and Vitest
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        service:
-          - menu-api
-          - orders-api
-          - kitchen-worker
-          - stats-api
-          - web
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        uses: docker/build-push-action@v6
+      - uses: actions/setup-node@v5
         with:
-          context: ./${{ matrix.service }}
-          file: ./${{ matrix.service }}/Dockerfile
-          tags: dhaba/${{ matrix.service }}:${{ github.sha }}
-          load: true
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - name: Scan Image with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: ESLint
+        working-directory: web
+        run: npm run lint
+
+      - name: Vitest
+        working-directory: web
+        run: npm test
+
+  # Python: Ruff + pytest
+  menu-api:
+    name: Menu API - Ruff and pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
         with:
-          image-ref: dhaba/${{ matrix.service }}:${{ github.sha }}
-          format: table
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: CRITICAL
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: menu-api/requirements-dev.txt
+
+      - name: Install dependencies
+        working-directory: menu-api
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff
+        working-directory: menu-api
+        run: ruff check .
+
+      - name: Pytest
+        working-directory: menu-api
+        run: pytest
+
+  # Go: golangci-lint + Go tests
+  orders-api:
+    name: Orders API - golangci-lint and Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: orders-api/go.mod
+          cache: true
+          cache-dependency-path: orders-api/go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13
+          working-directory: orders-api
+
+      - name: Go tests
+        working-directory: orders-api
+        run: go test ./...
+
+  # Java: Checkstyle + JUnit
+  kitchen-worker:
+    name: Kitchen Worker - Checkstyle and JUnit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: kitchen-worker/pom.xml
+
+      - name: Checkstyle and JUnit tests
+        working-directory: kitchen-worker
+        run: mvn -B verify
+
+  # PHP: PHPStan + PHPUnit
+  stats-api:
+    name: Stats API - PHPStan and PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          coverage: none
+          tools: composer:v2
+
+      - name: Install dependencies
+        working-directory: stats-api
+        run: composer install --no-interaction --prefer-dist
+
+      - name: PHPStan
+        working-directory: stats-api
+        run: composer analyse
+
+      - name: PHPUnit
+        working-directory: stats-api
+        env:
+          DB_CONNECTION: sqlite
+          DB_DATABASE: ":memory:"
+        run: composer test
+
+  # Dockerfiles: Hadolint
+  dockerfiles:
+    name: Dockerfile lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hadolint
+        run: |
+          status=0
+          while IFS= read -r -d '' file; do
+            echo "Checking $file"
+            docker run --rm -i hadolint/hadolint:v2.12.0 < "$file" || status=1
+          done < <(find . -type f -iname 'Dockerfile*' -print0)
+          exit "$status"
+
+  # Shell scripts: ShellCheck
+  shell-scripts:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Check shell scripts
+        run: |
+          if [ -d scripts ]; then
+            find scripts -type f -name "*.sh" -print0 |
+              xargs -0 -r shellcheck
+          fi
+
+  # Kubernetes manifests: kubeconform
+  kubernetes:
+    name: Kubernetes manifest validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Kustomize
+        run: |
+          curl -sSLo /tmp/kustomize.tar.gz \
+            https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.7.1/kustomize_v5.7.1_linux_amd64.tar.gz
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp
+          sudo install /tmp/kustomize /usr/local/bin/kustomize
+
+      # kubeconform runs from its container image, so rendered output goes to
+      # a directory that is mounted into the container.
+      - name: Validate staging manifests
+        run: |
+          mkdir -p rendered
+          kustomize build k8s/overlays/staging > rendered/staging.yaml
+          docker run --rm -v "$PWD/rendered:/work" \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary /work/staging.yaml
+
+      - name: Validate production manifests
+        run: |
+          mkdir -p rendered
+          kustomize build k8s/overlays/production > rendered/production.yaml
+          docker run --rm -v "$PWD/rendered:/work" \
+            ghcr.io/yannh/kubeconform:v0.6.7 \
+            -strict -summary /work/production.yaml

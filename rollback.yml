@@ -1,0 +1,122 @@
+
+name: Rollback Dhaba
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to roll back
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ inputs.environment }}
+
+    steps:
+      - name: Notify Slack - Rollback Started
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          MESSAGE="Rollback started for Dhaba in ${ENVIRONMENT}."
+          curl -fsS -X POST \
+            -H 'Content-type: application/json' \
+            --data "$(jq -n --arg text "$MESSAGE" --arg url "$RUN_URL" '{text: ($text + "\n" + $url)}')" \
+            "$SLACK_WEBHOOK_URL"
+
+      - name: Roll back Dhaba Deployments
+        id: rollback
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: 51.20.193.202
+          username: dhaba-deploy
+          key: ${{ secrets.DHABA_DEPLOY_SSH_KEY }}
+          port: 22
+          script: |
+            set -eu
+
+            NAMESPACE="${{ inputs.environment }}"
+
+            echo "Starting rollback in $NAMESPACE"
+
+            deployments="
+            web
+            menu-api
+            orders-api
+            kitchen-worker
+            stats-api
+            stats-nginx
+            "
+
+            for deployment in $deployments; do
+              echo "Rolling back $deployment..."
+              kubectl rollout undo deployment/"$deployment" -n "$NAMESPACE"
+            done
+
+            for deployment in $deployments; do
+              echo "Waiting for $deployment..."
+              kubectl rollout status deployment/"$deployment" \
+                -n "$NAMESPACE" --timeout=180s
+            done
+
+            echo "Starting web smoke test..."
+
+            SERVICE_PORT=$(kubectl get svc web -n "$NAMESPACE" \
+              -o jsonpath='{.spec.ports[0].port}')
+
+            kubectl port-forward -n "$NAMESPACE" \
+              svc/web 18080:"$SERVICE_PORT" \
+              >/tmp/dhaba-rollback-port-forward.log 2>&1 &
+
+            PF_PID=$!
+            trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:18080/ >/dev/null 2>&1; then
+                echo "Smoke test passed."
+                echo "Rollback completed successfully in $NAMESPACE."
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "Smoke test failed."
+            cat /tmp/dhaba-rollback-port-forward.log
+            exit 1
+
+      - name: Notify Slack - Rollback Result
+        if: always()
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          RESULT: ${{ steps.rollback.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$RESULT" = "success" ]; then
+            MESSAGE="Dhaba rollback succeeded in ${ENVIRONMENT}."
+          else
+            MESSAGE="Dhaba rollback FAILED in ${ENVIRONMENT}."
+          fi
+
+          curl -fsS -X POST \
+            -H 'Content-type: application/json' \
+            --data "$(jq -n --arg text "$MESSAGE" --arg url "$RUN_URL" '{text: ($text + "\n" + $url)}')" \
+            "$SLACK_WEBHOOK_URL"

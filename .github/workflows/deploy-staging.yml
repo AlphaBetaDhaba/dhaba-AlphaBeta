@@ -1,0 +1,348 @@
+
+name: Deploy Dhaba Staging
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Images to ECR"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2 staging
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+          AWS_ACCOUNT_ID: "270254976774"
+          AWS_REGION: eu-north-1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: dhaba-deploy
+          key: ${{ secrets.DHABA_DEPLOY_SSH_KEY }}
+          envs: IMAGE_TAG,AWS_ACCOUNT_ID,AWS_REGION
+          command_timeout: 30m
+          script: |
+            bash -s <<'DEPLOY'
+            set -euo pipefail
+
+            NAMESPACE=staging
+            REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+            REPO_DIR="$HOME/Dhaba-dev"
+
+            DEPLOYMENTS=(web menu-api orders-api kitchen-worker stats-api stats-nginx)
+
+            declare -A REPOSITORIES=(
+              [web]=dhaba-web
+              [menu-api]=dhaba-menu-api
+              [orders-api]=dhaba-orders-api
+              [kitchen-worker]=dhaba-kitchen-worker
+              [stats-api]=dhaba-stats-api
+              [stats-nginx]=dhaba-stats-nginx
+            )
+
+            declare -A CURRENT_IMAGES=()
+            declare -A PREVIOUS_TEMPLATES=()
+            declare -A PREVIOUS_REVISIONS=()
+
+            WORK_DIR=""
+            PORT_FORWARD_PID=""
+            CHANGES_STARTED=false
+            DEPLOY_SUCCEEDED=false
+
+            fail() {
+              echo "::error::Staging deployment failed: $1"
+              exit 1
+            }
+
+            template_hash() {
+              {
+                kubectl get deployment "$1" -n "$NAMESPACE" \
+                  -o jsonpath='{.spec.template}' 2>/dev/null || true
+              } | sha256sum | cut -d' ' -f1
+            }
+
+            rollback() {
+              echo "Rolling back Deployments changed by this run..."
+
+              for deployment in "${DEPLOYMENTS[@]}"; do
+                before_revision="${PREVIOUS_REVISIONS[$deployment]:-}"
+
+                if [[ "$(template_hash "$deployment")" == "${PREVIOUS_TEMPLATES[$deployment]}" ]]; then
+                  continue
+                fi
+
+                if [[ -z "$before_revision" ]]; then
+                  echo "::warning::$deployment was created by this run; no earlier revision to restore."
+                  continue
+                fi
+
+                echo "Rolling back $deployment to revision $before_revision"
+
+                kubectl rollout undo deployment/"$deployment" -n "$NAMESPACE" \
+                  --to-revision="$before_revision" ||
+                  echo "::warning::Rollback of $deployment failed."
+
+                kubectl rollout status deployment/"$deployment" -n "$NAMESPACE" \
+                  --timeout=180s ||
+                  echo "::warning::$deployment did not become ready after rollback."
+              done
+            }
+
+            on_exit() {
+              local status=$?
+              set +e
+
+              if [[ -n "$PORT_FORWARD_PID" ]]; then
+                kill "$PORT_FORWARD_PID" 2>/dev/null
+              fi
+
+              if [[ "$CHANGES_STARTED" == true && "$DEPLOY_SUCCEEDED" != true ]]; then
+                rollback
+              fi
+
+              if [[ -n "$WORK_DIR" ]]; then
+                rm -rf "$WORK_DIR"
+              fi
+
+              exit "$status"
+            }
+
+            trap on_exit EXIT
+
+            WORK_DIR=$(mktemp -d /tmp/dhaba-deploy-staging-XXXXXX)
+
+            # Extract manifests and scripts from the exact build commit.
+            cd "$REPO_DIR" || fail "repository not found at $REPO_DIR"
+
+            git fetch --quiet origin main ||
+              fail "git fetch from origin failed"
+
+            git cat-file -e "${IMAGE_TAG}^{commit}" 2>/dev/null ||
+              fail "commit $IMAGE_TAG was not found after fetching origin/main"
+
+            git archive "$IMAGE_TAG" k8s scripts | tar -x -C "$WORK_DIR" ||
+              fail "could not extract k8s/ and scripts/ from $IMAGE_TAG"
+
+            # Namespaced check: the deployer SA cannot read cluster-scoped namespaces.
+            kubectl get deployments -n "$NAMESPACE" >/dev/null ||
+              fail "cannot reach the cluster, or no access to namespace $NAMESPACE"
+
+            # Verify PostgreSQL credentials.
+            for key in POSTGRES_USER POSTGRES_PASSWORD; do
+              value=$(kubectl get secret postgres-secret -n "$NAMESPACE" \
+                -o jsonpath="{.data.$key}" 2>/dev/null || true)
+
+              [[ -n "$value" ]] ||
+                fail "secret postgres-secret in $NAMESPACE is missing or has no $key"
+            done
+
+            # Refresh ECR pull credentials.
+            # Runs as the ecr-secret-refresher SA via the ops CronJob, so the
+            # deployer never touches ECR credentials directly.
+            ECR_JOB="ecr-refresh-$(date +%s)"
+            kubectl create job "$ECR_JOB" --from=cronjob/ecr-secret-refresh -n ops ||
+              fail "could not start ECR refresh job"
+            if ! kubectl wait --for=condition=complete "job/$ECR_JOB" -n ops --timeout=180s; then
+              kubectl logs "job/$ECR_JOB" -n ops --tail=100 || true
+              fail "ECR pull-secret refresh failed"
+            fi
+            kubectl delete job "$ECR_JOB" -n ops --wait=false || true
+
+            # Capture the current deployment state.
+            for deployment in "${DEPLOYMENTS[@]}"; do
+              CURRENT_IMAGES[$deployment]=$(kubectl get deployment "$deployment" -n "$NAMESPACE" \
+                -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+
+              PREVIOUS_TEMPLATES[$deployment]=$(template_hash "$deployment")
+
+              PREVIOUS_REVISIONS[$deployment]=$(kubectl get deployment "$deployment" -n "$NAMESPACE" \
+                -o jsonpath='{.metadata.annotations.deployment\.kubernetes\.io/revision}' 2>/dev/null || true)
+            done
+
+            # Use the new SHA image when available.
+            # Otherwise retain the image currently running.
+            IMAGE_ENTRIES=""
+
+            for deployment in "${DEPLOYMENTS[@]}"; do
+              repository="${REPOSITORIES[$deployment]}"
+              manifest_name="$REGISTRY/$repository"
+
+              if ecr_output=$(aws ecr describe-images \
+                --repository-name "$repository" \
+                --image-ids imageTag="$IMAGE_TAG" \
+                --region "$AWS_REGION" 2>&1); then
+
+                image="$manifest_name:$IMAGE_TAG"
+                echo "$deployment: deploying new image $image"
+
+              elif ! grep -q ImageNotFoundException <<< "$ecr_output"; then
+                fail "ECR lookup for $repository failed: $ecr_output"
+
+              elif [[ -n "${CURRENT_IMAGES[$deployment]}" ]]; then
+                image="${CURRENT_IMAGES[$deployment]}"
+                echo "$deployment: no new image; keeping $image"
+
+              else
+                echo "$deployment: first deployment; using the manifest image"
+                continue
+              fi
+
+              IMAGE_ENTRIES+="  - name: $manifest_name"$'\n'
+              IMAGE_ENTRIES+="    newName: ${image%:*}"$'\n'
+              IMAGE_ENTRIES+="    newTag: ${image##*:}"$'\n'
+            done
+
+            # Generate temporary Kustomize wrapper.
+            mkdir "$WORK_DIR/deploy"
+
+            {
+              echo "apiVersion: kustomize.config.k8s.io/v1beta1"
+              echo "kind: Kustomization"
+              echo "resources:"
+              echo "  - ../k8s/overlays/staging"
+
+              if [[ -n "$IMAGE_ENTRIES" ]]; then
+                echo "images:"
+                printf '%s' "$IMAGE_ENTRIES"
+              fi
+            } > "$WORK_DIR/deploy/kustomization.yaml"
+
+            kubectl kustomize "$WORK_DIR/deploy" > "$WORK_DIR/rendered.yaml" ||
+              fail "rendering the staging manifests failed"
+
+            # Apply staging manifests.
+            CHANGES_STARTED=true
+
+            kubectl apply -f "$WORK_DIR/rendered.yaml" ||
+              fail "kubectl apply failed"
+
+            # Wait for all application deployments.
+            for deployment in "${DEPLOYMENTS[@]}"; do
+              kubectl rollout status deployment/"$deployment" \
+                -n "$NAMESPACE" --timeout=180s ||
+                fail "rollout of $deployment did not complete within 180s"
+            done
+
+            # Smoke test using a dynamically allocated local port.
+            kubectl port-forward -n "$NAMESPACE" svc/web :8080 \
+              > "$WORK_DIR/port-forward.log" 2>&1 &
+            PORT_FORWARD_PID=$!
+
+            SMOKE_PORT=""
+
+            for _ in $(seq 1 30); do
+              SMOKE_PORT=$(sed -nE \
+                's/.*Forwarding from 127\.0\.0\.1:([0-9]+) -> 8080.*/\1/p' \
+                "$WORK_DIR/port-forward.log" | head -n 1)
+
+              if [[ -n "$SMOKE_PORT" ]]; then
+                break
+              fi
+
+              if ! kill -0 "$PORT_FORWARD_PID" 2>/dev/null; then
+                fail "port-forward exited: $(cat "$WORK_DIR/port-forward.log")"
+              fi
+
+              sleep 1
+            done
+
+            [[ -n "$SMOKE_PORT" ]] ||
+              fail "port-forward did not become ready within 30 seconds"
+
+            echo "Smoke test using local port $SMOKE_PORT"
+
+            curl --fail --silent --show-error --max-time 10 \
+              --retry 3 --retry-delay 2 \
+              "http://127.0.0.1:$SMOKE_PORT/health" ||
+              fail "smoke test failed: web /health did not return 200"
+
+            echo
+            echo "Staging smoke test passed."
+
+            # C14: staging load test over the same port-forward.
+            echo "Starting staging load test..."
+
+            bash "$WORK_DIR/scripts/load.sh" \
+              "http://127.0.0.1:$SMOKE_PORT/health" \
+              100 \
+              10 ||
+              fail "Staging load test failed"
+
+            echo "Staging load test passed."
+
+            # Record the exact images running in staging.
+            RELEASE_NAME="release-$IMAGE_TAG"
+            declare -A DEPLOYED_IMAGES=()
+
+            for deployment in "${DEPLOYMENTS[@]}"; do
+              repository="${REPOSITORIES[$deployment]}"
+              prefix="$REGISTRY/$repository:"
+
+              image=$(kubectl get deployment "$deployment" -n "$NAMESPACE" \
+                -o jsonpath='{.spec.template.spec.containers[0].image}') ||
+                fail "cannot read deployed image of $deployment"
+
+              tag="${image#"$prefix"}"
+
+              if [[ "$image" != "$prefix"* ]] ||
+                ! [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+                fail "$deployment runs '$image', which is not a valid full image reference"
+              fi
+
+              DEPLOYED_IMAGES[$deployment]="$image"
+            done
+
+            # Verify an existing record or create a new immutable record.
+            if kubectl get configmap "$RELEASE_NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+
+              for deployment in "${DEPLOYMENTS[@]}"; do
+                recorded=$(kubectl get configmap "$RELEASE_NAME" -n "$NAMESPACE" \
+                  -o go-template="{{with index .data \"$deployment\"}}{{.}}{{end}}")
+
+                [[ "$recorded" == "${DEPLOYED_IMAGES[$deployment]}" ]] ||
+                  fail "$RELEASE_NAME already records a different image for $deployment"
+              done
+
+              echo "Release record $RELEASE_NAME already exists and matches."
+
+            else
+              {
+                echo "apiVersion: v1"
+                echo "kind: ConfigMap"
+                echo "metadata:"
+                echo "  name: $RELEASE_NAME"
+                echo "  namespace: $NAMESPACE"
+                echo "  labels:"
+                echo '    dhaba.io/release-record: "true"'
+                echo "  annotations:"
+                echo "    dhaba.io/commit: \"$IMAGE_TAG\""
+                echo "    dhaba.io/recorded-at: \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+                echo "immutable: true"
+                echo "data:"
+
+                for deployment in "${DEPLOYMENTS[@]}"; do
+                  echo "  $deployment: \"${DEPLOYED_IMAGES[$deployment]}\""
+                done
+              } > "$WORK_DIR/release.yaml"
+
+              kubectl create -f "$WORK_DIR/release.yaml" ||
+                fail "could not create release record $RELEASE_NAME"
+
+              echo "Created release record $RELEASE_NAME"
+            fi
+
+            DEPLOY_SUCCEEDED=true
+
+            echo "Staging deployment and release record completed successfully."
+            DEPLOY
