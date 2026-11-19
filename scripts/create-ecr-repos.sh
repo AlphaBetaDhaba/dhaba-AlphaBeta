@@ -1,64 +1,48 @@
+#!/bin/bash
 set -euo pipefail
 
-# AWS Region
-AWS_REGION="${AWS_REGION:-us-east-1}"
+REGION="us-east-1"
 
-# Get AWS Account ID
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-# Repositories
 REPOSITORIES=(
-    "dhaba/menu-api"
-    "dhaba/orders-api"
-    "dhaba/kitchen-worker"
-    "dhaba/stats-api"
-    "dhaba/web"
+  "dhaba-web"
+  "dhaba-menu-api"
+  "dhaba-orders-api"
+  "dhaba-kitchen-worker"
+  "dhaba-stats-api"
+  "postgres"
+  "redis"
+  "ops-monitor"
+  "dhaba-stats-nginx"
 )
 
-echo "======================================"
-echo "Dhaba Orders - ECR Repository Setup"
-echo "======================================"
-echo "AWS Account: ${AWS_ACCOUNT_ID}"
-echo "AWS Region:  ${AWS_REGION}"
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+POLICY_FILE="$SCRIPT_DIR/ecr-lifecycle-policy.json"
 
 for REPO in "${REPOSITORIES[@]}"; do
-
-    echo "Checking repository: ${REPO}"
+    echo "Processing $REPO..."
 
     if aws ecr describe-repositories \
-        --repository-names "${REPO}" \
-        --region "${AWS_REGION}" \
-        >/dev/null 2>&1; then
-
-        echo "Repository already exists: ${REPO}"
-
+        --repository-names "$REPO" \
+        --region "$REGION" >/dev/null 2>&1; then
+        echo "$REPO already exists"
     else
-
-        echo "Creating repository: ${REPO}"
-
         aws ecr create-repository \
-            --repository-name "${REPO}" \
-            --region "${AWS_REGION}" \
+            --repository-name "$REPO" \
             --image-scanning-configuration scanOnPush=true \
-            --image-tag-mutability IMMUTABLE
-
-        echo "Created: ${REPO}"
-
+            --region "$REGION"
     fi
 
+    aws ecr put-image-scanning-configuration \
+        --repository-name "$REPO" \
+        --image-scanning-configuration scanOnPush=true \
+        --region "$REGION" >/dev/null
+
+    aws ecr put-lifecycle-policy \
+        --repository-name "$REPO" \
+        --lifecycle-policy-text "file://$POLICY_FILE" \
+        --region "$REGION" >/dev/null
+
+    echo "$REPO configured successfully"
 done
 
-echo ""
-echo "======================================"
-echo "ECR repositories are ready!"
-echo "======================================"
-
-echo "Registry:"
-echo "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-
-echo ""
-echo "Repositories:"
-for REPO in "${REPOSITORIES[@]}"; do
-    echo "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}"
-done
+echo "All ECR repositories configured."
