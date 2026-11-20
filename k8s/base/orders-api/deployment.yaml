@@ -25,7 +25,7 @@ spec:
         - name: ecr-registry
       containers:
         - name: orders-api
-          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba/orders-api:f6ce59b
+          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba-orders-api:5e85f75c89cdc77c434d5e060f84ce1497f9d3a7
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

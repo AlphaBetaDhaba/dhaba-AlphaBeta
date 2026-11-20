@@ -40,7 +40,7 @@ spec:
         - name: ecr-registry
       containers:
         - name: kitchen-worker
-          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba/kitchen-worker:c642a34
+          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba-kitchen-worker:48773dc9e07ce9177976e8393c6bf3f31ae51ea3
           imagePullPolicy: IfNotPresent
           env:
             - name: DB_HOST

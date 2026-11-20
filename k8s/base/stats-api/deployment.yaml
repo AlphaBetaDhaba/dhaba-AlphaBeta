@@ -25,7 +25,7 @@ spec:
         - name: ecr-registry
       containers:
         - name: stats-api
-          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba/stats-api:f6ce59b
+          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba-stats-api:eab5ec9ac7c47402dbb8745fde2fd4c14fd692a2
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

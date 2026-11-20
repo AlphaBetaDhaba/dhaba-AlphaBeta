@@ -25,7 +25,7 @@ spec:
         - name: ecr-registry
       containers:
         - name: web
-          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba/web:f6ce59b
+          image: 267278679790.dkr.ecr.us-east-1.amazonaws.com/dhaba-web:48773dc9e07ce9177976e8393c6bf3f31ae51ea3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
