@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 FROM alpine:3.23
 WORKDIR /app
-RUN apk add --no-cache ca-certificates\
+RUN apk upgrade --no-cache zlib \
+    && apk add --no-cache ca-certificates \
     && addgroup -S appuser \
     && adduser -S appuser -G appuser
 COPY --from=builder --chown=appuser:appgroup /app/orders-api .
