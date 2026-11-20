@@ -185,39 +185,56 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-      - name: Wait for ECR vulnerability scan
+      # - name: Wait for ECR vulnerability scan
+      #   shell: bash
+      #   env:
+      #     REPOSITORY: ${{ matrix.repository }}
+      #     IMAGE_TAG: ${{ github.sha }}
+      #   run: |
+      #     STATUS=""
+
+      #     for attempt in {1..20}; do
+      #       STATUS=$(aws ecr describe-image-scan-findings \
+      #         --repository-name "$REPOSITORY" \
+      #         --image-id imageTag="$IMAGE_TAG" \
+      #         --query 'imageScanStatus.status' \
+      #         --output text 2>/dev/null || true)
+
+      #       echo "Scan status: $STATUS"
+
+      #       if [[ "$STATUS" == "COMPLETE" ]]; then
+      #         break
+      #       fi
+
+      #       if [[ "$STATUS" == "FAILED" ]]; then
+      #         echo "ECR vulnerability scan failed."
+      #         exit 1
+      #       fi
+
+      #       sleep 15
+      #     done
+
+      #     if [[ "$STATUS" != "COMPLETE" ]]; then
+      #       echo "ECR scan did not complete in time."
+      #       exit 1
+      #     fi
+
+      
+      - name: Debug ECR vulnerability scan
         shell: bash
         env:
           REPOSITORY: ${{ matrix.repository }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          STATUS=""
+          echo "Repository: $REPOSITORY"
+          echo "Image tag: $IMAGE_TAG"
 
-          for attempt in {1..20}; do
-            STATUS=$(aws ecr describe-image-scan-findings \
-              --repository-name "$REPOSITORY" \
-              --image-id imageTag="$IMAGE_TAG" \
-              --query 'imageScanStatus.status' \
-              --output text 2>/dev/null || true)
+          aws ecr describe-image-scan-findings \
+            --repository-name "$REPOSITORY" \
+            --image-id imageTag="$IMAGE_TAG" \
+            --region us-east-1 \
+            --output json
 
-            echo "Scan status: $STATUS"
-
-            if [[ "$STATUS" == "COMPLETE" ]]; then
-              break
-            fi
-
-            if [[ "$STATUS" == "FAILED" ]]; then
-              echo "ECR vulnerability scan failed."
-              exit 1
-            fi
-
-            sleep 15
-          done
-
-          if [[ "$STATUS" != "COMPLETE" ]]; then
-            echo "ECR scan did not complete in time."
-            exit 1
-          fi
 
       - name: Fail if critical vulnerabilities exist
         shell: bash
