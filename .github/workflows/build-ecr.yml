@@ -251,8 +251,12 @@ jobs:
           
           CRITICAL=$(python3 -c '
           import json, sys
+
           data = json.load(sys.stdin)
-          counts = data.get("imageScanFindings", {}).get("findingSeverityCounts", {})
+          
+          findings = data.get("imageScanFindings") or {}
+          counts = findings.get("findingSeverityCounts") or {}
+          
           print(counts.get("CRITICAL", 0))
           ' <<< "$SCAN_JSON")
           
