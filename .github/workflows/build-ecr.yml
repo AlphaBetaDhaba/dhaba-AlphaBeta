@@ -243,15 +243,22 @@ jobs:
           REPOSITORY: ${{ matrix.repository }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          CRITICAL=$(aws ecr describe-image-scan-findings \
+          SCAN_JSON=$(aws ecr describe-image-scan-findings \
             --repository-name "$REPOSITORY" \
             --image-id imageTag="$IMAGE_TAG" \
-            --query 'imageScanFindings.findingSeverityCounts.CRITICAL' \
-            --output text)
-
+            --region "$AWS_REGION" \
+            --output json)
+          
+          CRITICAL=$(python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          counts = data.get("imageScanFindings", {}).get("findingSeverityCounts", {})
+          print(counts.get("CRITICAL", 0))
+          ' <<< "$SCAN_JSON")
+          
           echo "Critical vulnerabilities: $CRITICAL"
-
-          if [[ "$CRITICAL" =~ ^[0-9]+$ ]] && (( CRITICAL > 0 )); then
+          
+          if (( CRITICAL > 0 )); then
             echo "Critical vulnerabilities found. Failing pipeline."
             exit 1
           fi
