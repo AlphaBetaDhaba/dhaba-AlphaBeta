@@ -139,12 +139,12 @@ jobs:
               fail "cannot reach the cluster, or no access to namespace $NAMESPACE"
 
             # Verify PostgreSQL credentials.
-            for key in POSTGRES_USER POSTGRES_PASSWORD; do
-              value=$(kubectl get secret postgres-secret -n "$NAMESPACE" \
+            for key in APP_KEY DB_PASSWORD; do
+              value=$(kubectl get secret dhaba-secret -n "$NAMESPACE" \
                 -o jsonpath="{.data.$key}" 2>/dev/null || true)
 
               [[ -n "$value" ]] ||
-                fail "secret postgres-secret in $NAMESPACE is missing or has no $key"
+                fail "secret dhaba-secret in $NAMESPACE is missing or has no $key"
             done
 
             # Refresh ECR pull credentials.
