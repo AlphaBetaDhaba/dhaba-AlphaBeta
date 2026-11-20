@@ -24,8 +24,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
-          AWS_ACCOUNT_ID: "270254976774"
-          AWS_REGION: eu-north-1
+          AWS_ACCOUNT_ID: "267278679790"
+          AWS_REGION: us-east-1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: dhaba-deploy
@@ -36,7 +36,7 @@ jobs:
             bash -s <<'DEPLOY'
             set -euo pipefail
 
-            NAMESPACE=staging
+            NAMESPACE=dhaba-staging
             REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
             REPO_DIR="$HOME/Dhaba-dev"
 
