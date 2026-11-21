@@ -34,7 +34,7 @@ jobs:
       # Package Kubernetes manifests.
       - name: Package Kubernetes manifests
         run: |
-          tar -czf "k8s-${IMAGE_TAG}.tar.gz" k8s
+          tar -czf "k8s-${IMAGE_TAG}.tar.gz" k8s database/init.sql
 
       # Transfer manifests to EC2.
       - name: Upload manifests to EC2
@@ -294,37 +294,81 @@ jobs:
               > "$WORK_DIR/rendered.yaml" ||
               fail "Could not render staging manifests."
 
-            # Apply manifests.
-            echo "Applying staging manifests..."
+            
+              # Prepare database initialization SQL.
+              echo "Preparing database initialization..."
 
-            CHANGES_STARTED=true
+              if [[ ! -f "$WORK_DIR/database/init.sql" ]]; then
+                fail "Database initialization file not found."
+              fi
 
-            kubectl apply -f "$WORK_DIR/rendered.yaml" ||
-              fail "kubectl apply failed."
+              CHANGES_STARTED=true
 
-            # Wait for application Deployments.
-            for deployment in "${DEPLOYMENTS[@]}"; do
+              kubectl create configmap dhaba-db-init-sql \
+                --namespace "$NAMESPACE" \
+                --from-file=init.sql="$WORK_DIR/database/init.sql" \
+                --dry-run=client -o yaml |
+                kubectl apply -f - ||
+                fail "Could not create database initialization ConfigMap."
 
-              echo "Waiting for $deployment..."
+              # Delete previous Job so it runs again.
+              kubectl delete job db-init \
+                -n "$NAMESPACE" \
+                --ignore-not-found \
+                --wait=true ||
+                fail "Could not delete previous database initialization Job."
 
-              kubectl rollout status deployment/"$deployment" \
+              # Apply manifests.
+              echo "Applying staging manifests..."
+
+              kubectl apply -f "$WORK_DIR/rendered.yaml" ||
+                fail "kubectl apply failed."
+
+              # Wait for PostgreSQL.
+              echo "Waiting for PostgreSQL..."
+
+              kubectl rollout status statefulset/postgres \
+                -n "$NAMESPACE" \
+                --timeout=300s ||
+                fail "PostgreSQL rollout failed."
+
+              # Wait for database initialization.
+              echo "Waiting for database initialization..."
+
+              if ! kubectl wait \
+                --for=condition=complete \
+                job/db-init \
+                -n "$NAMESPACE" \
+                --timeout=360s; then
+
+                echo "Database initialization failed. Job logs:"
+                kubectl logs job/db-init -n "$NAMESPACE" || true
+                fail "Database initialization Job failed."
+
+              fi
+
+              echo "Database initialization completed successfully."
+
+              # Wait for Redis.
+              echo "Waiting for Redis..."
+
+              kubectl rollout status statefulset/redis \
                 -n "$NAMESPACE" \
                 --timeout=180s ||
-                fail "$deployment rollout failed."
+                fail "Redis rollout failed."
 
-            done
+              # Wait for application Deployments.
+              for deployment in "${DEPLOYMENTS[@]}"; do
 
-            # Wait for PostgreSQL and Redis.
-            for statefulset in postgres redis; do
+                echo "Waiting for $deployment..."
 
-              echo "Waiting for $statefulset..."
+                kubectl rollout status deployment/"$deployment" \
+                  -n "$NAMESPACE" \
+                  --timeout=180s ||
+                  fail "$deployment rollout failed."
 
-              kubectl rollout status statefulset/"$statefulset" \
-                -n "$NAMESPACE" \
-                --timeout=180s ||
-                fail "$statefulset rollout failed."
+              done
 
-            done
 
             # Start web Service port-forward.
             kubectl port-forward \
