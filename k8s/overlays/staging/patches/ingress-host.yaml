@@ -8,7 +8,7 @@ metadata:
   name: dhaba-ingress-api
 spec:
   rules:
-    - host: staging.dhaba.test
+    - host: staging-dhaba.duckdns.org
       http:
         paths:
           - path: /api/(menu.*)
@@ -61,7 +61,7 @@ metadata:
   name: dhaba-ingress-web
 spec:
   rules:
-    - host: staging.dhaba.test
+    - host: staging-dhaba.duckdns.org
       http:
         paths:
           - path: /
