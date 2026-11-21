@@ -27,8 +27,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
-          AWS_ACCOUNT_ID: "270254976774"
-          AWS_REGION: eu-north-1
+          AWS_ACCOUNT_ID: "267278679790"
+          AWS_REGION: us-east-1
         with:
           host: ${{ secrets.EC2_HOST }}
           username: dhaba-deploy
@@ -39,11 +39,11 @@ jobs:
             bash -s <<'DEPLOY'
             set -euo pipefail
 
-            NAMESPACE=production
-            SOURCE_NAMESPACE=staging
+            NAMESPACE=dhaba-production
+            SOURCE_NAMESPACE=dhaba-staging
             REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
-            DEPLOYMENTS=(web menu-api orders-api kitchen-worker stats-api stats-nginx)
+            DEPLOYMENTS=(web menu-api orders-api kitchen-worker stats-api )
 
             declare -A REPOSITORIES=(
               [web]=dhaba-web
@@ -51,7 +51,6 @@ jobs:
               [orders-api]=dhaba-orders-api
               [kitchen-worker]=dhaba-kitchen-worker
               [stats-api]=dhaba-stats-api
-              [stats-nginx]=dhaba-stats-nginx
             )
 
             declare -A PREVIOUS_HASHES=()
@@ -133,12 +132,12 @@ jobs:
               fail "Production namespace unavailable"
 
             # Verify production database credentials.
-            for key in POSTGRES_USER POSTGRES_PASSWORD; do
-              value=$(kubectl get secret postgres-secret -n "$NAMESPACE" \
+            for key in APP_KEY DB_PASSWORD; do
+              value=$(kubectl get secret dhaba-secret -n "$NAMESPACE" \
                 -o jsonpath="{.data.$key}" 2>/dev/null || true)
 
               [[ -n "$value" ]] ||
-                fail "postgres-secret is missing $key in production"
+                fail "Secret dhaba-secret is missing $key in production"
             done
 
             # Extract the exact approved commit without modifying the repo.
@@ -153,7 +152,7 @@ jobs:
 
             DEPLOY_DIR=$(mktemp -d /tmp/dhaba-production-XXXXXX)
 
-            git archive "$IMAGE_TAG" k8s scripts |
+            git archive "$IMAGE_TAG" k8s scripts database|
               tar -x -C "$DEPLOY_DIR" ||
               fail "Could not extract approved commit"
 
@@ -236,8 +235,51 @@ jobs:
             # Apply production manifests.
             CHANGES_STARTED=true
 
+            # Prepare production database initialization SQL.
+            echo "Preparing production database initialization..."
+
+            if [[ ! -f "$DEPLOY_DIR/database/init.sql" ]]; then
+              fail "Database initialization file not found."
+            fi
+
+            CHANGES_STARTED=true
+
+            kubectl create configmap dhaba-db-init-sql \
+              --namespace "$NAMESPACE" \
+              --from-file=init.sql="$DEPLOY_DIR/database/init.sql" \
+              --dry-run=client -o yaml |
+              kubectl apply -f - ||
+              fail "Could not create production database initialization ConfigMap."
+
+            kubectl delete job db-init \
+              -n "$NAMESPACE" \
+              --ignore-not-found \
+              --wait=true ||
+              fail "Could not delete previous database initialization Job."
+
             kubectl apply -f "$DEPLOY_DIR/rendered.yaml" ||
               fail "Production manifest application failed"
+
+            # Wait for PostgreSQL to become ready.
+            echo "Waiting for production PostgreSQL..."
+
+            kubectl rollout status statefulset/postgres \
+              -n "$NAMESPACE" \
+              --timeout=300s ||
+              fail "Production PostgreSQL failed to become ready"
+
+            # Wait for database initialization to complete.
+            echo "Waiting for production database initialization..."
+
+            kubectl wait --for=condition=complete job/db-init \
+              -n "$NAMESPACE" \
+              --timeout=300s ||
+              {
+                kubectl logs job/db-init -n "$NAMESPACE" --all-containers=true || true
+                fail "Production database initialization failed"
+              }
+
+            echo "Production database initialization completed."
 
             # Wait for all application deployments.
             for deployment in "${DEPLOYMENTS[@]}"; do
@@ -247,7 +289,7 @@ jobs:
             done
 
             # Smoke test production web service.
-            kubectl port-forward -n "$NAMESPACE" svc/web 18081:8080 \
+            kubectl port-forward -n "$NAMESPACE" svc/web 18081:80 \
               > "$DEPLOY_DIR/port-forward.log" 2>&1 &
             PF_PID=$!
 
@@ -270,7 +312,7 @@ jobs:
 
             curl --fail --silent --show-error \
               --max-time 10 --retry 3 --retry-delay 3 \
-              http://127.0.0.1:18081/health ||
+              http://127.0.0.1:18081/ ||
               fail "Production smoke test failed"
 
             echo
@@ -280,7 +322,7 @@ jobs:
             echo "Starting production load test..."
 
             bash "$DEPLOY_DIR/scripts/load.sh" \
-              http://127.0.0.1:18081/health \
+              http://127.0.0.1:18081/ \
               100 \
               10 ||
               fail "Production load test failed"
